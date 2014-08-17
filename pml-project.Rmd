@@ -1,0 +1,53 @@
+---
+title: "Physical Excercise Form Classification Model"
+author: "Forest"
+date: "August 16, 2014"
+output: html_document
+---
+
+##Abstract
+In this R Markdown report, we examine the data collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. Our goal is to classify whether they perform barbell lifts correctly and incorrectly in 5 different ways.
+
+
+Here are the R packages we will need for this analysis:
+```{r library, message=FALSE, warning=FALSE}
+library(caret)
+library(dplyr)
+library(corrplot)
+```
+
+##Data Import and Cleaning
+```{r load}
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```
+
+There are a lot of variables and some of them have large amounts of missing values. We want to first filter out those unhelpful one and move to feature selection from there.
+
+```{r clean, warning=FALSE}
+#save classe variable
+trainingClasse <- training$classe
+#find all factor variables
+factorCols <- sapply(training, is.factor)
+#force them to numeric
+toNumeric <- function(x) { as.numeric(as.character(x)) }
+training <- mutate_each_q(training, funs(toNumeric), colnames(training)[factorCols])
+#filter all columns with NAs
+badColumns <- sapply(training, function(x){ sum(is.na(x)) > 0 }) 
+goodTraining <- training[, !badColumns] %>% mutate(classe = trainingClasse)
+#filter out index and time columns
+goodTraining <- select(goodTraining, -X, -contains("time"), -num_window)
+```
+
+### Model Fitting
+We will now configure 
+```{r train}
+set.seed(1431)
+#set up cross validation
+cvControl <- trainControl(method="cv")
+#set up number of variables used in growing trees
+rfGrid <- data.frame(mtry=10:10)
+rfFit <- train(classe ~ ., goodTraining, tuneGrid = rfGrid, trControl = cvControl)
+```
+
+### Model testing
