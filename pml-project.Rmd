@@ -6,8 +6,9 @@ output: html_document
 ---
 
 ##Abstract
-In this R Markdown report, we examine the data collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. Our goal is to classify whether they perform barbell lifts correctly and incorrectly in 5 different ways.
+In this R Markdown report, we examine the data collected from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. Our goal is to classify whether they perform barbell lifts correctly and incorrectly in 5 different ways. We fitted a random forest model using cross-validation to control overfitting and received fairly good results.
 
+## R Package
 
 Here are the R packages we will need for this analysis:
 ```{r library, message=FALSE, warning=FALSE}
@@ -39,15 +40,57 @@ goodTraining <- training[, !badColumns] %>% mutate(classe = trainingClasse)
 goodTraining <- select(goodTraining, -X, -contains("time"), -num_window)
 ```
 
-### Model Fitting
-We will now configure 
-```{r train}
-set.seed(1431)
-#set up cross validation
-cvControl <- trainControl(method="cv")
-#set up number of variables used in growing trees
-rfGrid <- data.frame(mtry=10:10)
-rfFit <- train(classe ~ ., goodTraining, tuneGrid = rfGrid, trControl = cvControl)
+We will now create a training and testing set so we can estimate our out-of-sample error rate.
+
+```{r slice}
+inTrain <- createDataPartition(goodTraining$classe, p = 0.6, list = FALSE)
+traindata <- goodTraining[inTrain, ]
+testdata <- goodTraining[-inTrain, ]
 ```
 
-### Model testing
+## Model Tuning
+We will now fit a random forest model. Because of the richness of our dataset applying cross-validation and using the whole dataset to fit the model while tuning the number of features at the same time are very time-consuming. Therefore we opt to fit the model only on a small subset with cross validation and try to come up with the optimal `mtry` parameter first. We also want to perform Principal Component Analysis on the features to narrow the feature selection pool.
+```{r tuning, cache=TRUE}
+set.seed(1431)
+#set up cross validation and only use 20% data
+lgocvControl <- trainControl(method = "LGOCV", number = 10, p = 0.2)
+#set up number of variables used in growing trees
+rfGrid <- data.frame(mtry=1:10)
+#go train
+rfTune <- train(classe ~ ., traindata, preProcess = "pca", tuneGrid = rfGrid, trControl = lgocvControl)
+rfTune
+```
+
+## Model Final Fit
+Now we can lock down the `mtry` and fit the model on the full training dataset.
+```{r fitting, cache=TRUE, autodep=TRUE}
+set.seed(12345)
+cvControl <- trainControl(method = "cv")
+rfFit <- train(classe ~ ., traindata, preProcess = "pca", tuneGrid = rfTune$bestTune, trControl = cvControl)
+rfFit
+```
+As we can see, the final model is cross-validated and received a good accuracy. We will now try the same on our testing set to see what they do.
+```{r testing}
+confusionMatrix(predict(rfFit, testdata), testdata$classe)
+```
+They appear to be very good and received a similar accuracy and kappa statistics.
+
+## Model Visulization
+```{r vis}
+plot(rfFit$finalModel)
+varImpPlot(rfFit$finalModel)
+```
+
+## Model Output
+We can now evaluate our model using final testing data
+```{r output}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+pml_write_files(predict(rfFit, testing))
+```
+Only the third problem is wrong and the accuracy is in-line with our out-of-sample error estimate.
